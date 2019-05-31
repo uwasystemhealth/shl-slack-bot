@@ -3,6 +3,7 @@ import axios from 'axios';
 import { interact, web } from '../services/slack';
 import { eotdConfirm, eotdSubmit } from '../templates/eotd';
 import { latexEotd } from '../services/latex';
+import { twitterEotd } from '../services/twitter';
 import { Eotd } from '../../models';
 
 const validateEotdSubmission = (submission) => {
@@ -69,6 +70,7 @@ interact.action('eotd_confirm', async (payload, res) => {
     }).catch(error => axios.post(payload.response_url, {
       text: `An error occurred while opening the dialog: ${error.message}`,
     })).catch(console.error);
+    twitterEotd(submission);
     submission.published = true;
     submission.save();
   } else if (value === 'deny') {
