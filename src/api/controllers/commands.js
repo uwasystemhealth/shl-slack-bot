@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { web } from '../services/slack';
-import { eotdSubmit } from '../templates/dialogs';
+import { eotdSubmit } from '../templates/eotd';
 
 export default async (req, res) => {
   // let status = 200;
@@ -14,10 +14,7 @@ export default async (req, res) => {
     res.send();
     web.dialog.open({
       trigger_id: req.body.trigger_id,
-      dialog: {
-        ...eotdSubmit,
-        elements: eotdSubmit.elements.map(el => (el.name === 'user' ? { ...el, value: req.body.user_id } : el)),
-      },
+      dialog: eotdSubmit({ user: req.body.user_id }),
     }).catch((error) => {
       console.error(JSON.stringify(error, null, 2));
       return axios.post(req.body.response_url, {

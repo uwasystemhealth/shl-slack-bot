@@ -38,6 +38,7 @@
       "eol-last": [
           "error",
           "always"
-      ]
+      ],
+      "no-underscore-dangle": "off"
   }
 }

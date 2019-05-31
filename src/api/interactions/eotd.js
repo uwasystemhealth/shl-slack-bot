@@ -1,10 +1,9 @@
 /* eslint-disable consistent-return */
 import axios from 'axios';
 import { interact, web } from '../services/slack';
-import { eotdConfirm, eotdSubmit } from '../templates/dialogs';
-import latexUrl from '../services/latex';
-
-const userEotds = {};
+import { eotdConfirm, eotdSubmit } from '../templates/eotd';
+import { latexEotd } from '../services/latex';
+import { Eotd } from '../../models';
 
 const validateEotdSubmission = (submission) => {
   const errors = [];
@@ -32,47 +31,52 @@ const genAttachment = submission => ({
     text: `Equation of the Day "${submission.title}" submitted by <@${submission.user}>`,
     emoji: true,
   },
-  image_url: latexUrl(`
-  \\begin{center}
-  \\text{${submission.title}}\\\\
-  ${submission.latex}
-  \\end{center}`),
+  image_url: `https://slackbot.systemhealthlab.com/slack/eotd-image/${submission._id}?${(new Date(submission.updatedAt)).getTime()}`,
   alt_text: submission.title,
 });
 
-const getDate = (d = new Date()) => `${d.getDate() + 1}/${d.getMonth() + 1}/${d.getFullYear()}`;
+const getDate = (d = new Date()) => `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`;
 
 interact.action('eotd_submit', (payload, res) => {
+  // console.log(payload);
   const errors = validateEotdSubmission(payload.submission);
   if (errors) return errors;
-  res({
-    ...eotdConfirm,
-    attachments: [genAttachment(payload.submission), ...eotdConfirm.attachments],
-  });
-  userEotds[payload.user.id] = payload.submission;
+  (async () => {
+    let submission;
+    if (payload.state) {
+      submission = await Eotd.findById(payload.state);
+      Object.keys(payload.submission).forEach((i) => { submission[i] = payload.submission[i]; });
+    } else {
+      submission = new Eotd({ ...payload.submission, owner: payload.user.id });
+    }
+    submission.image = await latexEotd(submission.title, submission.latex);
+    submission = await submission.save();
+    // console.log(submission);
+    res(eotdConfirm(submission._id, [genAttachment(submission)]));
+  })();
 });
 
-interact.action('eotd_confirm', (payload, res) => {
+interact.action('eotd_confirm', async (payload, res) => {
   // console.log(payload);
-  const submission = userEotds[payload.user.id];
-  if (payload.actions[0].value === 'accept') {
-    res({ text: '' });
+  const [value, id] = payload.actions[0].value.split(':');
+  const submission = await Eotd.findById(id);
+  if (value === 'accept') {
+    res({ text: 'Ok, Publish! (∩｀-´)⊃━☆ﾟ.*・｡ﾟ' });
     web.chat.postMessage({
       channel: process.env.EOTD_CHANNEL,
       text: `Equation of the Day "${submission.title}" submitted by <@${submission.user}> on ${getDate(new Date())}`,
-      attachments: [genAttachment(submission)],
+      attachments: [await genAttachment(submission)],
     }).catch(error => axios.post(payload.response_url, {
       text: `An error occurred while opening the dialog: ${error.message}`,
     })).catch(console.error);
-  } else if (payload.actions[0].value === 'deny') {
+    submission.published = true;
+    submission.save();
+  } else if (value === 'deny') {
     try {
       res({ text: 'Ok, let\'s try again!' });
       web.dialog.open({
         trigger_id: payload.trigger_id,
-        dialog: {
-          ...eotdSubmit,
-          elements: eotdSubmit.elements.map(el => ({ ...el, value: submission[el.name] })),
-        },
+        dialog: eotdSubmit(submission),
       }).catch(error => axios.post(payload.response_url, {
         text: `An error occurred while opening the dialog: ${error.message}`,
       })).catch(console.error);
@@ -81,6 +85,6 @@ interact.action('eotd_confirm', (payload, res) => {
     }
   } else {
     res({ text: 'Ok, no worries!' });
+    submission.delete();
   }
-  delete userEotds[payload.user.id];
 });
